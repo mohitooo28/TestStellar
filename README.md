@@ -86,6 +86,10 @@ cd TestStellar
 
 🎉 **Ready!** TestStellar is now active and ready to assist with your questions.
 
+## 💻 TestStellar Usage Walkthrough
+
+https://github.com/user-attachments/assets/6e16fea6-3cb8-4800-b319-c70309001e50
+
 ## ⚠️ Important Notes
 
 ### Educational Use Only
