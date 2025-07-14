@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>TestStellar</title>
+        <link rel="stylesheet" href="popup.css" />
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <img src="icons/logo.svg" alt="TestStellar Logo" class="logo" />
+                <h1>TestStellar</h1>
+            </div>
+
+            <div id="no-key-section" class="section">
+                <p class="description">
+                    Enter your Gemini API key to start using TestStellar
+                </p>
+                <div class="input-group">
+                    <input
+                        type="password"
+                        id="api-key-input"
+                        placeholder="Enter Gemini API Key"
+                        maxlength="100"
+                    />
+                    <button id="save-key-btn" class="btn-primary">Save</button>
+                </div>
+
+                <div id="error-container"></div>
+
+                <div class="help-text">
+                    <a
+                        href="https://makersuite.google.com/app/apikey"
+                        target="_blank"
+                        >Get your API key here</a
+                    >
+                </div>
+            </div>
+
+            <div id="key-exists-section" class="section hidden">
+                <div class="key-status">
+                    <span class="status-icon">✓</span>
+                    <span class="status-text">API Key configured</span>
+                </div>
+                <div class="key-display">
+                    <span id="masked-key">••••••••••••••••••••</span>
+                </div>
+                <div class="button-group">
+                    <button id="edit-key-btn" class="btn-secondary">
+                        <span class="icon">✏️</span>
+                        Edit
+                    </button>
+                    <button id="remove-key-btn" class="btn-danger">
+                        <span class="icon">🗑️</span>
+                        Remove
+                    </button>
+                </div>
+            </div>
+        </div>
+        <script src="popup.js"></script>
+    </body>
+</html>
