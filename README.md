@@ -19,11 +19,14 @@
 -   🤖 **Gemini 2.0 Flash AI** - Latest Google AI model for instant MCQ solving
 -   🎯 **Right-Click Integration** - Context menu access for selected text
 -   🔒 **Secure Local Storage** - API keys stored safely in your browser
--   🌙 **Modern Dark UI** - Beautiful, clean interface design
 -   ⚡ **Dual Answer Modes** - Handles MCQ options and direct questions
 -   🛡️ **Stealth Operation** - Undetectable by exam monitoring systems
 -   📱 **Smart Detection** - Automatically identifies question patterns
 -   🔔 **Discrete Notifications** - Clean, professional answer display
+-   🚫 **Force Enable Text Selection** - Bypasses website restrictions on text selection
+-   🖱️ **Force Enable Right-Click** - Overrides disabled context menus on any site
+-   🎯 **Smart Focus Management** - Maintains page focus even during interactions
+-   🛠️ **Robust Error Handling** - Graceful fallbacks and non-intrusive operation
 
 ## 🏗️ Architecture
 
@@ -79,10 +82,17 @@ cd TestStellar
 
 ### ⚡ 4. How to Use
 
+#### Basic Usage
+
 1. Open any webpage containing a question
 2. Select the question text (with or without options)
 3. Right-click the selection → Choose **"Ask TestStellar"**
 4. An answer will appear via browser notification
+
+#### Advanced Features
+
+-   **📱 Smart Selection**: Double-click to auto-expand selection to include full questions
+-   **🖱️ Unrestricted Access**: Works on sites that normally disable right-click or text selection
 
 🎉 **Ready!** TestStellar is now active and ready to assist with your questions.
 
@@ -107,6 +117,28 @@ This extension is designed for **educational purposes** and learning assistance.
 -   🛡️ **No Tracking**: Zero data collection or external monitoring
 -   🎯 **Minimal Permissions**: Only essential Chrome APIs used
 -   🔐 **Secure Communication**: Direct encrypted API calls only
+
+## 🔧 Technical Features
+
+### Website Compatibility
+
+-   **Universal Text Selection**: Overrides `user-select: none` CSS restrictions
+-   **Context Menu Access**: Bypasses `oncontextmenu` event blocking
+-   **Focus Management**: Prevents websites from stealing focus during operation
+-   **DOM Protection**: Non-intrusive highlighting that doesn't break page functionality
+
+### Performance & Reliability
+
+-   **Debounced Event Handling**: Prevents conflicts with rapid user interactions
+-   **Memory Management**: Automatic cleanup of event listeners and DOM elements
+-   **Error Recovery**: Graceful fallbacks when websites have unusual restrictions
+-   **Cross-Browser Optimization**: Tested on various Chrome versions and websites
+
+### User Experience
+
+-   **Visual Feedback**: Clear status indicators
+-   **Responsive Design**: Adapts to different screen sizes and orientations
+-   **Clean Interface**: Minimal, non-intrusive design
 
 ## 📄 License
 
