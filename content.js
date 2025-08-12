@@ -1,549 +1,363 @@
-function injectStyles() {
-    const style = document.createElement("style");
-    style.textContent = `
-        .teststellar-selection-overlay {
-            pointer-events: none !important;
-            z-index: 10000 !important;
-            border-radius: 2px !important;
-            background-color: rgba(0, 247, 255, 0.15) !important;
-        }
-    `;
-    document.head.appendChild(style);
-}
+(function () {
+    'use strict';
 
-function enableTextSelectionAndRightClick() {
-    const overrideStyle = document.createElement("style");
-    overrideStyle.textContent = `
-        * {
-            -webkit-user-select: text !important;
-            -moz-user-select: text !important;
-            -ms-user-select: text !important;
-            user-select: text !important;
-            -webkit-touch-callout: default !important;
-        }
-        
-        body, html {
-            -webkit-user-select: text !important;
-            -moz-user-select: text !important;
-            -ms-user-select: text !important;
-            user-select: text !important;
-        }
-    `;
-    overrideStyle.id = "teststellar-selection-override";
-    document.head.appendChild(overrideStyle);
-
-    const protectedEvents = [
-        "contextmenu",
-        "selectstart",
-        "mousedown",
-        "mouseup",
-        "dragstart",
-    ];
-
-    protectedEvents.forEach((eventType) => {
-        document.addEventListener(
-            eventType,
-            function (e) {
-                e.stopPropagation();
-                if (
-                    eventType === "contextmenu" ||
-                    eventType === "selectstart"
-                ) {
-                    e.stopImmediatePropagation();
-                }
-            },
-            true
-        );
-    });
-
-    setTimeout(() => {
-        document.onselectstart = null;
-        document.oncontextmenu = null;
-        document.ondragstart = null;
-        document.onmousedown = null;
-
-        if (document.body) {
-            document.body.onselectstart = null;
-            document.body.oncontextmenu = null;
-            document.body.ondragstart = null;
-        }
-
-        const allElements = document.querySelectorAll("*");
-        allElements.forEach((element) => {
-            try {
-                element.onselectstart = null;
-                element.oncontextmenu = null;
-                element.ondragstart = null;
-
-                const computedStyle = window.getComputedStyle(element);
-                if (
-                    computedStyle.userSelect === "none" ||
-                    computedStyle.webkitUserSelect === "none"
-                ) {
-                    element.style.setProperty(
-                        "-webkit-user-select",
-                        "text",
-                        "important"
-                    );
-                    element.style.setProperty(
-                        "-moz-user-select",
-                        "text",
-                        "important"
-                    );
-                    element.style.setProperty(
-                        "-ms-user-select",
-                        "text",
-                        "important"
-                    );
-                    element.style.setProperty(
-                        "user-select",
-                        "text",
-                        "important"
-                    );
-                }
-            } catch (e) {
-                // Silent fail
-            }
-        });
-    }, 100);
-
-    const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-            mutation.addedNodes.forEach((node) => {
-                if (node.nodeType === Node.ELEMENT_NODE) {
-                    try {
-                        node.onselectstart = null;
-                        node.oncontextmenu = null;
-                        node.ondragstart = null;
-
-                        if (node.style) {
-                            node.style.setProperty(
-                                "-webkit-user-select",
-                                "text",
-                                "important"
-                            );
-                            node.style.setProperty(
-                                "user-select",
-                                "text",
-                                "important"
-                            );
-                        }
-                    } catch (e) {
-                        // Silent fail
-                    }
-                }
-            });
-        });
-    });
-
-    if (document.body) {
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-        });
-    }
-}
-
-function preventFocusLoss() {
-    let originalFocus = document.activeElement;
-
-    const maintainFocus = () => {
-        if (
-            document.activeElement &&
-            document.activeElement !== originalFocus
-        ) {
-            if (originalFocus && typeof originalFocus.focus === "function") {
-                try {
-                    originalFocus.focus();
-                } catch (e) {
-                    // Silent fail
-                }
-            }
-        }
+    const CONFIG = {
+        MIN_LEN: 10,
+        MAX_LEN: 5000,
+        DEBOUNCE_MS: 120,
+        OVERLAY_TTL: 1800,
+        MAX_INDICATOR_HEIGHT: 800,
+        COOLDOWN_MS: 250,
+        MAX_RANGES: 5,
+        RECENT_HASH_LIMIT: 5,
+        ENABLE_FORCE_SELECT: true,
+        ENABLE_RIGHT_CLICK: true,
+        ENABLE_FOCUS_LOCK: true
     };
 
-    document.addEventListener(
-        "focusout",
-        (e) => {
-            setTimeout(maintainFocus, 10);
-        },
-        true
-    );
+    const STATE = {
+        active: true,
+        debounceTimer: null,
+        lastHash: null,
+        overlayHash: null,
+        lastSentAt: 0,
+        recentHashes: [],
+        overlayTimers: [],
+        indicatorTimers: [],
+        focusLock: true,
+        selectionFreedom: true,
+        patterns: [
+            /(?:^|\n)\s*[A-E][\.\)]\s+\S+/i,
+            /which\s+of\s+the\s+following/i,
+            /choose\s+(?:the\s+)?(?:best|correct|right)/i,
+            /select\s+(?:the\s+)?(?:best|correct|appropriate)/i,
+            /option\s*[A-E]/i
+        ]
+    };
 
-    document.addEventListener(
-        "blur",
-        (e) => {
-            setTimeout(maintainFocus, 10);
-        },
-        true
-    );
+    const PREFILTER = /[A-E][\.)]|which\s+of\s+the\s+following|choose\s|select\s|option\s*[A-E]/i;
 
-    window.addEventListener("blur", (e) => {
-        setTimeout(() => {
-            try {
-                window.focus();
-                if (
-                    originalFocus &&
-                    typeof originalFocus.focus === "function"
-                ) {
-                    originalFocus.focus();
-                }
-            } catch (e) {
-                // Silent fail
-            }
-        }, 10);
-    });
-
-    document.addEventListener("click", (e) => {
-        originalFocus = e.target;
-    });
-
-    setInterval(() => {
-        if (document.visibilityState === "visible") {
-            try {
-                window.focus();
-            } catch (e) {
-                // Silent fail
-            }
-        }
-    }, 1000);
-}
-
-let lastSelectedText = "";
-let selectionStartTime = 0;
-let isExtensionActive = true;
-let processingTimeout = null;
-
-function initialize() {
-    if (!isExtensionActive) return;
-
-    injectStyles();
-    enableTextSelectionAndRightClick();
-    preventFocusLoss();
-    setupSelectionHandlers();
-    setupContextMenuEnhancement();
-
-    document.addEventListener("visibilitychange", () => {
-        if (document.hidden) {
-            removeHighlights();
-            removeProcessingIndicators();
-        }
-    });
-}
-
-function setupSelectionHandlers() {
-    let selectionTimeout;
-
-    document.addEventListener("mouseup", (event) => {
-        clearTimeout(selectionTimeout);
-        selectionTimeout = setTimeout(() => handleTextSelection(event), 100);
-    });
-
-    document.addEventListener("keyup", (event) => {
-        clearTimeout(selectionTimeout);
-        selectionTimeout = setTimeout(() => handleTextSelection(event), 100);
-    });
-}
-
-function handleTextSelection(event) {
-    if (!isExtensionActive) return;
-
-    const selection = window.getSelection();
-    const selectedText = selection.toString().trim();
-
-    clearTimeout(processingTimeout);
-
-    if (selectedText && selectedText.length > 10) {
-        lastSelectedText = selectedText;
-
-        if (isPotentialMCQ(selectedText)) {
-            processingTimeout = setTimeout(() => {
-                prepareContextMenu(selectedText);
-            }, 200);
-        }
-    } else {
-        removeHighlights();
+    function hasRuntime() {
+        return typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage;
     }
-}
 
-function isPotentialMCQ(text) {
-    const mcqIndicators = [
-        /[A-E][\.\)]\s*\w+/g,
-        /option\s*[A-E]/i,
-        /choose\s*(the\s*)?(correct|right|best)/i,
-        /which\s*(of\s*the\s*following|one)/i,
-        /select\s*(the\s*)?(correct|appropriate)/i,
-        /\?\s*[A-E][\.\)]/,
-        /(a\)|b\)|c\)|d\)|e\))/i,
-    ];
-
-    return mcqIndicators.some((pattern) => pattern.test(text));
-}
-
-function highlightSelection(selection) {
-    removeHighlights();
-
-    if (!selection || selection.rangeCount === 0) return;
-
-    try {
-        const range = selection.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-
-        if (rect.width === 0 || rect.height === 0) return;
-
-        const overlay = document.createElement("div");
-        overlay.className = "teststellar-selection-overlay";
-        overlay.style.position = "absolute";
-        overlay.style.left = rect.left + window.scrollX + "px";
-        overlay.style.top = rect.top + window.scrollY + "px";
-        overlay.style.width = rect.width + "px";
-        overlay.style.height = rect.height + "px";
-        overlay.style.backgroundColor = "rgba(0, 247, 255, 0.15)";
-        overlay.style.pointerEvents = "none";
-        overlay.style.zIndex = "10000";
-        overlay.style.borderRadius = "2px";
-
-        document.body.appendChild(overlay);
-
-        setTimeout(() => {
-            if (overlay.parentNode) {
-                overlay.parentNode.removeChild(overlay);
-            }
-        }, 2000);
-    } catch (error) {
-        console.log("Highlight error (non-critical):", error);
+    function hashText(str) { 
+        if (!str) return 0;
+        let h = 0x811c9dc5;
+        for (let i = 0; i < str.length; i++) {
+            h ^= str.charCodeAt(i);
+            h = (h + (h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24)) >>> 0;
+        }
+        return h;
     }
-}
 
-function removeHighlights() {
-    const overlays = document.querySelectorAll(
-        ".teststellar-selection-overlay"
-    );
-    overlays.forEach((overlay) => {
-        if (overlay.parentNode) {
-            overlay.parentNode.removeChild(overlay);
-        }
-    });
-
-    const highlights = document.querySelectorAll(".teststellar-selection");
-    highlights.forEach((highlight) => {
-        const parent = highlight.parentNode;
-        if (parent) {
-            while (highlight.firstChild) {
-                parent.insertBefore(highlight.firstChild, highlight);
-            }
-            parent.removeChild(highlight);
-            parent.normalize();
-        }
-    });
-}
-
-function prepareContextMenu(selectedText) {
-    chrome.runtime.sendMessage({
-        action: "prepareSelection",
-        text: selectedText,
-        timestamp: Date.now(),
-        url: window.location.href,
-    });
-}
-
-function setupContextMenuEnhancement() {
-    document.addEventListener("contextmenu", (event) => {
-        const selection = window.getSelection();
-        const selectedText = selection.toString().trim();
-
-        if (selectedText && isPotentialMCQ(selectedText)) {
-            const target =
-                event.target.closest("p, div, span, td") || event.target;
-            addProcessingIndicator(target);
-        }
-    });
-}
-
-function addProcessingIndicator(element) {
-    removeProcessingIndicators();
-
-    if (element) {
-        element.classList.add("teststellar-processing");
-
-        setTimeout(() => {
-            element.classList.remove("teststellar-processing");
-        }, 3000);
+    function isMCQ(text) {
+        if (!text || text.length < CONFIG.MIN_LEN) return false;
+        if (text.length > CONFIG.MAX_LEN) return false;
+        if (!PREFILTER.test(text)) return false;
+        return STATE.patterns.some(r => r.test(text));
     }
-}
 
-function removeProcessingIndicators() {
-    const processItems = document.querySelectorAll(".teststellar-processing");
-    processItems.forEach((item) => {
-        item.classList.remove("teststellar-processing");
-    });
-}
+    function ensureStyles() {
+        if (document.getElementById('teststellar-base-styles') || !document.head) return;
+        const s = document.createElement('style');
+        s.id = 'teststellar-base-styles';
+        s.textContent = `
+            html, body, main, article, section, div, p, span, li, td, th, pre, code {
+                user-select: text !important;
+                -webkit-user-select: text !important;
+            }
+            #teststellar-selection-override { display: none; }
+            .teststellar-selection-overlay {
+                position: absolute; pointer-events: none; z-index: 99999;
+                background: rgba(0,247,255,0.15); border-radius: 2px;
+                box-shadow: 0 0 0 1px rgba(0,247,255,0.35) inset;
+            }
+            .teststellar-processing { outline: 2px solid rgba(0,247,255,0.6); outline-offset: 2px; }
+        `;
+        document.head.appendChild(s);
+    }
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    switch (request.action) {
-        case "getSelection":
-            const selection = window.getSelection();
-            sendResponse({
-                text: selection.toString().trim(),
-                isValid: isPotentialMCQ(selection.toString().trim()),
+    // Right Click 
+    function neutralizeHandlers(el) {
+        if (!el) return;
+        try {
+            el.onselectstart = null; el.oncontextmenu = null; el.ondragstart = null; el.onmousedown = null;
+            const cs = getComputedStyle(el);
+            if (cs.userSelect === 'none' || cs.webkitUserSelect === 'none') {
+                el.style.setProperty('user-select','text','important');
+                el.style.setProperty('-webkit-user-select','text','important');
+            }
+        } catch { /* ignore */ }
+    }
+
+    let nodeObserver = null;
+    function observeNewNodes() {
+        if (nodeObserver || !document.body) return;
+        nodeObserver = new MutationObserver(muts => {
+            if (!STATE.selectionFreedom) return;
+            for (const m of muts) {
+                m.addedNodes.forEach(n => { if (n.nodeType === 1) neutralizeHandlers(n); });
+            }
+        });
+        nodeObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    function applySelectionFreedom() {
+        if (!STATE.selectionFreedom) return;
+        if (CONFIG.ENABLE_FORCE_SELECT && !document.getElementById('teststellar-selection-override')) {
+            const o = document.createElement('style');
+            o.id = 'teststellar-selection-override';
+            o.textContent = `* { -webkit-user-select: text !important; user-select: text !important; -webkit-touch-callout: default !important; }`;
+            document.head.appendChild(o);
+        }
+        if (CONFIG.ENABLE_RIGHT_CLICK) {
+            ['contextmenu','selectstart','mousedown','mouseup','dragstart'].forEach(type => {
+                document.addEventListener(type, (e) => {
+                    if (!STATE.selectionFreedom) return;
+                    e.stopPropagation();
+                    if (type === 'contextmenu' || type === 'selectstart') e.stopImmediatePropagation();
+                }, true);
             });
-            break;
-
-        case "clearHighlights":
-            removeHighlights();
-            removeProcessingIndicators();
-            sendResponse({ success: true });
-            break;
-
-        case "showProcessing":
-            const currentSelection = window.getSelection();
-            if (currentSelection.rangeCount > 0) {
-                const range = currentSelection.getRangeAt(0);
-                addProcessingIndicator(range.commonAncestorContainer);
-            }
-            sendResponse({ success: true });
-            break;
+        }
+        Array.from(document.querySelectorAll('body, body *')).slice(0, 2000).forEach(neutralizeHandlers);
+        observeNewNodes();
     }
-});
 
-function enhanceTextSelection() {
-    let isProcessing = false;
+    // Focus Lock
+    let originalFocusEl = null;
+    function initFocusLock() {
+        if (!STATE.focusLock || !CONFIG.ENABLE_FOCUS_LOCK) return;
+        originalFocusEl = document.activeElement || null;
+        document.addEventListener('focusout', handlePotentialFocusLoss, true);
+        document.addEventListener('blur', handlePotentialFocusLoss, true);
+        window.addEventListener('blur', () => {
+            if (!STATE.focusLock) return;
+            setTimeout(() => { try { window.focus(); restoreFocus(); } catch {} }, 25);
+        });
+        document.addEventListener('click', e => { originalFocusEl = e.target; }, true);
+    }
 
-    document.addEventListener("dblclick", (event) => {
-        if (isProcessing) return;
+    function handlePotentialFocusLoss() { if (STATE.focusLock) setTimeout(restoreFocus, 15); }
 
-        setTimeout(() => {
-            const selection = window.getSelection();
-            const selectedText = selection.toString().trim();
+    function restoreFocus() {
+        if (!STATE.focusLock) return;
+        if (!originalFocusEl || !document.contains(originalFocusEl)) return;
+        const current = document.activeElement;
+        if (!current || current === document.body || current === document.documentElement) {
+            try { originalFocusEl.focus({ preventScroll: true }); } catch {}
+        }
+    }
 
-            if (
-                selectedText &&
-                selectedText.length > 20 &&
-                isPotentialMCQ(selectedText)
-            ) {
-                isProcessing = true;
-                try {
-                    expandSelectionForMCQ();
-                } catch (error) {
-                    console.log(
-                        "Selection expansion error (non-critical):",
-                        error
-                    );
-                } finally {
-                    setTimeout(() => {
-                        isProcessing = false;
-                    }, 500);
+    function clearOverlays() {
+        document.querySelectorAll('.teststellar-selection-overlay').forEach(el => el.remove());
+        STATE.overlayHash = null;
+        STATE.overlayTimers.forEach(t => clearTimeout(t));
+        STATE.overlayTimers.length = 0;
+    }
+
+    function drawOverlayForSelection(sel, hash) {
+        if (STATE.overlayHash === hash) return; 
+        clearOverlays();
+        if (!sel || !sel.rangeCount) return;
+        const count = Math.min(sel.rangeCount, CONFIG.MAX_RANGES);
+        const render = () => {
+            for (let i = 0; i < count; i++) {
+                const range = sel.getRangeAt(i);
+                const rects = range.getClientRects();
+                for (const r of rects) {
+                    if (r.width === 0 || r.height === 0) continue;
+                    const o = document.createElement('div');
+                    o.className = 'teststellar-selection-overlay';
+                    o.style.left = (r.left + window.scrollX) + 'px';
+                    o.style.top = (r.top + window.scrollY) + 'px';
+                    o.style.width = r.width + 'px';
+                    o.style.height = r.height + 'px';
+                    document.body.appendChild(o);
+                    const timer = setTimeout(() => o.remove(), CONFIG.OVERLAY_TTL);
+                    STATE.overlayTimers.push(timer);
                 }
             }
-        }, 50);
+            STATE.overlayHash = hash;
+        };
+        if ('requestIdleCallback' in window) {
+            requestIdleCallback(() => render(), { timeout: 100 });
+        } else {
+            render();
+        }
+    }
+
+    function removeProcessingIndicator() {
+        document.querySelectorAll('.teststellar-processing').forEach(el => el.classList.remove('teststellar-processing'));
+    }
+
+    function boundedTarget(el) {
+        let cur = el && el.nodeType === 1 ? el : null;
+        while (cur && cur !== document.body) {
+            const rect = cur.getBoundingClientRect?.();
+            if (rect && rect.height < CONFIG.MAX_INDICATOR_HEIGHT) return cur;
+            cur = cur.parentElement;
+        }
+        return el && el.nodeType === 1 ? el : document.body;
+    }
+
+    function addProcessingIndicator(target) {
+        removeProcessingIndicator();
+        const t = boundedTarget(target);
+        if (!t) return;
+        t.classList.add('teststellar-processing');
+        const timer = setTimeout(() => t.classList.remove('teststellar-processing'), 2500);
+        STATE.indicatorTimers.push(timer);
+    }
+
+    function sendSelection(text, hash) {
+        if (!hasRuntime()) return;
+        const now = Date.now();
+        if (now - STATE.lastSentAt < CONFIG.COOLDOWN_MS) return; 
+        if (STATE.lastHash === hash) return; 
+        if (STATE.recentHashes.includes(hash)) return; 
+        STATE.lastHash = hash;
+        STATE.lastSentAt = now;
+        STATE.recentHashes.push(hash);
+        if (STATE.recentHashes.length > CONFIG.RECENT_HASH_LIMIT) {
+            STATE.recentHashes.shift();
+        }
+        chrome.runtime.sendMessage({
+            action: 'prepareSelection',
+            text,
+            timestamp: now,
+            url: location.href
+        });
+    }
+
+    chrome.runtime?.onMessage?.addListener?.((req, _sender, sendResponse) => {
+        switch (req.action) {
+            case 'getSelection': {
+                const sel = window.getSelection();
+                const text = sel ? sel.toString().trim() : '';
+                sendResponse?.({ text, isValid: isMCQ(text) });
+                break; }
+            case 'clearHighlights':
+                clearOverlays();
+                removeProcessingIndicator();
+                sendResponse?.({ success: true });
+                break;
+            case 'showProcessing': {
+                const sel = window.getSelection();
+                if (sel && sel.rangeCount) addProcessingIndicator(sel.getRangeAt(0).commonAncestorContainer);
+                sendResponse?.({ success: true });
+                break; }
+            case 'toggleActive':
+                STATE.active = !STATE.active;
+                if (!STATE.active) { clearOverlays(); removeProcessingIndicator(); }
+                sendResponse?.({ active: STATE.active });
+                break;
+            case 'setActive':
+                STATE.active = !!req.value;
+                if (!STATE.active) { clearOverlays(); removeProcessingIndicator(); }
+                sendResponse?.({ active: STATE.active });
+                break;
+            case 'updatePatterns': {
+                const invalid = [];
+                if (Array.isArray(req.patterns)) {
+                    const compiled = [];
+                    for (const p of req.patterns) {
+                        try { compiled.push(new RegExp(p, 'i')); }
+                        catch { invalid.push(p); }
+                    }
+                    if (compiled.length) STATE.patterns = compiled;
+                }
+                sendResponse?.({ patternCount: STATE.patterns.length, invalid });
+                break; }
+            case 'getStatus': {
+                sendResponse?.({
+                    active: STATE.active,
+                    patternCount: STATE.patterns.length,
+                    config: {
+                        MIN_LEN: CONFIG.MIN_LEN,
+                        MAX_LEN: CONFIG.MAX_LEN,
+                        DEBOUNCE_MS: CONFIG.DEBOUNCE_MS,
+                        OVERLAY_TTL: CONFIG.OVERLAY_TTL,
+                        COOLDOWN_MS: CONFIG.COOLDOWN_MS,
+                        focusLock: STATE.focusLock,
+                        selectionFreedom: STATE.selectionFreedom
+                    }
+                });
+                break; }
+            case 'toggleFocusLock':
+                STATE.focusLock = !STATE.focusLock;
+                if (STATE.focusLock) { initFocusLock(); }
+                sendResponse?.({ focusLock: STATE.focusLock });
+                break;
+            case 'setFocusLock':
+                STATE.focusLock = !!req.value;
+                if (STATE.focusLock) { initFocusLock(); }
+                sendResponse?.({ focusLock: STATE.focusLock });
+                break;
+            case 'toggleSelectionFreedom':
+                STATE.selectionFreedom = !STATE.selectionFreedom;
+                if (STATE.selectionFreedom) applySelectionFreedom();
+                sendResponse?.({ selectionFreedom: STATE.selectionFreedom });
+                break;
+            case 'setSelectionFreedom':
+                STATE.selectionFreedom = !!req.value;
+                if (STATE.selectionFreedom) applySelectionFreedom();
+                sendResponse?.({ selectionFreedom: STATE.selectionFreedom });
+                break;
+            default: break;
+        }
     });
-}
 
-function expandSelectionForMCQ() {
-    const selection = window.getSelection();
-    if (selection.rangeCount === 0) return;
-
-    const range = selection.getRangeAt(0);
-    const text = selection.toString();
-
-    if (text.length > 20 && isPotentialMCQ(text)) {
-        try {
-            expandToIncludeOptions(range);
-        } catch (error) {
-            console.log("Selection expansion error (non-critical):", error);
-        }
-    }
-}
-
-function expandToIncludeOptions(range) {
-    if (!range || !range.commonAncestorContainer) return;
-
-    const container =
-        range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-            ? range.commonAncestorContainer.parentNode
-            : range.commonAncestorContainer;
-
-    const text = container.textContent || "";
-    const originalLength = range.endOffset - range.startOffset;
-
-    if (text.length > 5000) return;
-
-    const beforeText = text.substring(0, range.startOffset);
-    const afterText = text.substring(range.endOffset);
-
-    const optionPattern = /[A-E][\.\)]\s*[\w\s]+/g;
-    const questionPattern = /\?\s*$/;
-
-    let expandStart = range.startOffset;
-    if (questionPattern.test(beforeText)) {
-        const lines = beforeText.split("\n");
-        if (lines.length > 1) {
-            expandStart = Math.max(
-                0,
-                beforeText.lastIndexOf("\n", beforeText.length - 2) + 1
-            );
-        }
+    function processSelection() {
+        if (!STATE.active) return;
+        const sel = window.getSelection();
+        const text = sel ? sel.toString().trim() : '';
+        if (!text) { clearOverlays(); return; }
+        if (text.length < CONFIG.MIN_LEN || text.length > CONFIG.MAX_LEN) { clearOverlays(); return; }
+        if (!isMCQ(text)) { clearOverlays(); return; }
+        const h = hashText(text);
+        drawOverlayForSelection(sel, h);
+        sendSelection(text, h);
     }
 
-    let expandEnd = range.endOffset;
-    const optionMatches = afterText.match(optionPattern);
-    if (optionMatches && optionMatches.length >= 2) {
-        const lastMatch = optionMatches[optionMatches.length - 1];
-        const lastIndex = afterText.indexOf(lastMatch) + lastMatch.length;
-        expandEnd = range.endOffset + Math.min(lastIndex, 1000);
+    function debouncedProcess() {
+        if (STATE.debounceTimer) clearTimeout(STATE.debounceTimer);
+        STATE.debounceTimer = setTimeout(processSelection, CONFIG.DEBOUNCE_MS);
     }
 
-    const expandedLength = expandEnd - expandStart;
-    if (expandedLength > originalLength && expandedLength < 2000) {
-        try {
-            const newRange = document.createRange();
-            newRange.setStart(container.firstChild || container, expandStart);
-            newRange.setEnd(
-                container.firstChild || container,
-                Math.min(expandEnd, text.length)
-            );
-
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(newRange);
-        } catch (error) {
-            console.log("Range expansion error (non-critical):", error);
-        }
+    function setup() {
+        ensureStyles();
+    if (CONFIG.ENABLE_FORCE_SELECT || CONFIG.ENABLE_RIGHT_CLICK) applySelectionFreedom();
+    if (CONFIG.ENABLE_FOCUS_LOCK) initFocusLock();
+        document.addEventListener('selectionchange', debouncedProcess, true);
+        document.addEventListener('contextmenu', (e) => {
+            const sel = window.getSelection();
+            const text = sel ? sel.toString().trim() : '';
+            if (isMCQ(text)) addProcessingIndicator(e.target.closest('p,div,span,td,li') || e.target);
+        }, true);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) { clearOverlays(); removeProcessingIndicator(); }
+        });
     }
-}
 
-window.addEventListener("beforeunload", () => {
-    isExtensionActive = false;
-    clearTimeout(processingTimeout);
-    removeHighlights();
-    removeProcessingIndicators();
-
-    const styleOverride = document.getElementById(
-        "teststellar-selection-override"
-    );
-    if (styleOverride) {
-        styleOverride.remove();
+    function teardown() {
+        STATE.active = false;
+        clearTimeout(STATE.debounceTimer);
+        STATE.overlayTimers.forEach(t => clearTimeout(t));
+        STATE.indicatorTimers.forEach(t => clearTimeout(t));
+        STATE.overlayTimers.length = 0;
+        STATE.indicatorTimers.length = 0;
+        clearOverlays();
+        removeProcessingIndicator();
+    if (nodeObserver) { try { nodeObserver.disconnect(); } catch {} }
     }
-});
 
-window.addEventListener("pagehide", () => {
-    isExtensionActive = false;
-    clearTimeout(processingTimeout);
-    removeHighlights();
-    removeProcessingIndicators();
+    window.addEventListener('beforeunload', teardown);
+    window.addEventListener('pagehide', teardown);
 
-    const styleOverride = document.getElementById(
-        "teststellar-selection-override"
-    );
-    if (styleOverride) {
-        styleOverride.remove();
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setup);
+    } else {
+        setup();
     }
-});
-
-if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initialize);
-} else {
-    initialize();
-}
-
-enhanceTextSelection();
+})();
